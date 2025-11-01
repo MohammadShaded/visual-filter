@@ -7,7 +7,8 @@ import {
   decodeFilterStateFromURL,
   FilterType,
   GroupType,
-  DataType
+  DataType,
+  ExtendedDataType
 } from "../src/main.js"
 
 export default {
@@ -48,6 +49,16 @@ export default {
             type: "nominal",
             values: ["Engineering", "Marketing", "Sales", "HR", "Finance"],
           },
+          {
+            name: "Hire Date",
+            type: "date",
+            values: ["2023-01-15", "2022-06-10", "2024-03-22", "2021-11-05", "2023-09-18"],
+          },
+          {
+            name: "Last Login",
+            type: "date", 
+            values: ["2024-10-30", "2024-10-28", "2024-10-31", "2024-10-25", "2024-10-29"],
+          },
         ],
         methods: {
           numeric: {
@@ -79,6 +90,58 @@ export default {
             },
             equals(cellValue, argument) {
               return cellValue === argument
+            },
+          },
+          date: {
+            before: {
+              arguments: 1,
+              operation: (cellValue, argument) => {
+                const cellDate = new Date(cellValue)
+                const argDate = new Date(argument)
+                return cellDate < argDate
+              }
+            },
+            after: {
+              arguments: 1,
+              operation: (cellValue, argument) => {
+                const cellDate = new Date(cellValue)
+                const argDate = new Date(argument)
+                return cellDate > argDate
+              }
+            },
+            on: {
+              arguments: 1,
+              operation: (cellValue, argument) => {
+                const cellDate = new Date(cellValue)
+                const argDate = new Date(argument)
+                return cellDate.getTime() === argDate.getTime()
+              }
+            },
+            not_on: {
+              arguments: 1,
+              operation: (cellValue, argument) => {
+                const cellDate = new Date(cellValue)
+                const argDate = new Date(argument)
+                return cellDate.getTime() !== argDate.getTime()
+              }
+            },
+            between: {
+              arguments: 2,
+              operation: (cellValue, startDate, endDate) => {
+                const cellDate = new Date(cellValue)
+                const start = new Date(startDate)
+                const end = new Date(endDate)
+                return cellDate >= start && cellDate <= end
+              }
+            },
+            not_between: {
+              arguments: 2,
+              operation: (cellValue, startDate, endDate) => {
+                const cellDate = new Date(cellValue)
+                const start = new Date(startDate)
+                const end = new Date(endDate)
+                return cellDate < start || cellDate > end
+              }
             },
           },
         },
@@ -125,6 +188,34 @@ export default {
             { fieldName: "Age", dataType: "numeric", method: "<", argument: "25" },
             { fieldName: "Grade", dataType: "numeric", method: ">", argument: "3.0" }
           ], GroupType.AND)
+        },
+        {
+          name: "Recently Hired",
+          description: "Employees hired after 2023",
+          filter: createPresetFilter([
+            { fieldName: "Hire Date", dataType: "date", method: "after", argument: "2023-01-01" }
+          ])
+        },
+        {
+          name: "Active This Week",
+          description: "Users who logged in after Oct 25, 2024",
+          filter: createPresetFilter([
+            { fieldName: "Last Login", dataType: "date", method: "after", argument: "2024-10-25" }
+          ])
+        },
+        {
+          name: "Specific Login Date",
+          description: "Users who logged in on Oct 30, 2024",
+          filter: createPresetFilter([
+            { fieldName: "Last Login", dataType: "date", method: "on", argument: "2024-10-30" }
+          ])
+        },
+        {
+          name: "Login Date Range",
+          description: "Users who logged in between Oct 25 and Oct 30, 2024",
+          filter: createPresetFilter([
+            { fieldName: "Last Login", dataType: "date", method: "between", arguments: ["2024-10-25", "2024-10-30"] }
+          ])
         }
       ]
     }
@@ -391,36 +482,7 @@ export default {
       >
         Saved Filters
       </button>
-      <button 
-        @click="currentTab = 'presets'"
-        :style="{ 
-          padding: '0.75rem 1rem', 
-          border: 'none', 
-          background: 'none', 
-          color: currentTab === 'presets' ? '#3b82f6' : '#6b7280',
-          fontWeight: '500',
-          cursor: 'pointer',
-          borderBottom: currentTab === 'presets' ? '2px solid #3b82f6' : '2px solid transparent',
-          transition: 'all 0.2s'
-        }"
-      >
-        Preset Filters
-      </button>
-      <button 
-        @click="currentTab = 'sharing'"
-        :style="{ 
-          padding: '0.75rem 1rem', 
-          border: 'none', 
-          background: 'none', 
-          color: currentTab === 'sharing' ? '#3b82f6' : '#6b7280',
-          fontWeight: '500',
-          cursor: 'pointer',
-          borderBottom: currentTab === 'sharing' ? '2px solid #3b82f6' : '2px solid transparent',
-          transition: 'all 0.2s'
-        }"
-      >
-        URL Sharing
-      </button>
+     
     </div>
 
     <!-- Basic Usage Tab -->
@@ -603,16 +665,7 @@ export default {
       </div>
     </div>
 
-    <div v-if="currentTab === 'presets'" style="text-align: center; padding: 2rem; color: #6b7280;">
-      <p>Preset Filters tab - Implementation would go here</p>
-      <p>This would show pre-configured filter examples</p>
-    </div>
-
-    <div v-if="currentTab === 'sharing'" style="text-align: center; padding: 2rem; color: #6b7280;">
-      <p>URL Sharing tab - Implementation would go here</p>
-      <p>This would show URL encoding/decoding functionality</p>
-    </div>
-
+   
     <!-- Always-rendered Filter Component (hidden for non-interactive tabs) -->
     <div :style="{ 
       padding: '1rem', 

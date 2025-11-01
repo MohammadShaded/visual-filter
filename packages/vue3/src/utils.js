@@ -1,5 +1,113 @@
 import { FilterType, GroupType, deepCopy } from "@visual-filter/common"
 
+// Extended DataType to include DATE within Vue3 package only
+export const ExtendedDataType = {
+  NUMERIC: "numeric",
+  NOMINAL: "nominal", 
+  DATE: "date"
+}
+
+/**
+ * Enhanced applyer that supports both old function format and new multi-argument format
+ * This is a complete replacement for the base applyer with multi-argument support
+ */
+export function applyFilter(filter, methods, data) {
+  function buildPremiseTree(filter) {
+    if (filter.type === FilterType.CONDITION) {
+      return data
+        .find((field) => field.name === filter.fieldName)
+        .values.map((value) => {
+          try {
+            const method = methods[filter.dataType][filter.method]
+            
+            // Handle both old function format and new object format
+            if (typeof method === 'function') {
+              // Old format - single argument
+              const argument = filter.arguments ? filter.arguments[0] : filter.argument
+              return method(value, argument)
+            } else if (method && typeof method.operation === 'function') {
+              // New format - multi-argument
+              const args = filter.arguments || (filter.argument ? [filter.argument] : [])
+              return method.operation(value, ...args)
+            }
+            
+            return false
+          } catch {
+            return false
+          }
+        })
+    }
+    return filter.filters.map(buildPremiseTree)
+  }
+
+  function shouldntDeleteRow(rowIndex, premises, group) {
+    for (
+      let conditionIndex = 0;
+      conditionIndex < premises.length;
+      ++conditionIndex
+    ) {
+      const currentPremise =
+        premises[conditionIndex][0]?.constructor === Array
+          ? shouldntDeleteRow(
+              rowIndex,
+              premises[conditionIndex],
+              group.filters[conditionIndex],
+            )
+          : premises[conditionIndex][rowIndex]
+
+      if (currentPremise === true) {
+        switch (group.groupType) {
+          case GroupType.AND:
+            continue
+          case GroupType.NOT_AND:
+            return false
+          case GroupType.OR:
+            return true
+          case GroupType.NOT_OR:
+            continue
+        }
+      } else {
+        switch (group.groupType) {
+          case GroupType.AND:
+            return false
+          case GroupType.NOT_AND:
+            continue
+          case GroupType.OR:
+            continue
+          case GroupType.NOT_OR:
+            return true
+        }
+      }
+    }
+
+    switch (group.groupType) {
+      case GroupType.AND:
+      case GroupType.NOT_AND:
+        return true
+      case GroupType.OR:
+      case GroupType.NOT_OR:
+        return false
+    }
+  }
+
+  const premiseTree = buildPremiseTree(filter)
+
+  for (
+    let rowIndex = 0, rowsCount = data[0].values.length, deletionCount = 0;
+    rowIndex < rowsCount;
+    ++rowIndex
+  ) {
+    if (shouldntDeleteRow(rowIndex, premiseTree, filter) === false) {
+      data.forEach((field) =>
+        field.values.splice(rowIndex - deletionCount, 1),
+      )
+      ++deletionCount
+    }
+  }
+
+  return data
+}
+
 /**
  * Utility functions for working with Vue Visual Filter
  */
@@ -56,13 +164,25 @@ function validateFilterRecursive(filter) {
  * @returns {Object} Pre-configured filter state
  */
 export function createPresetFilter(conditions = [], groupType = GroupType.AND) {
-  const filters = conditions.map(condition => ({
-    type: FilterType.CONDITION,
-    fieldName: condition.fieldName || '',
-    dataType: condition.dataType || 'nominal',
-    method: condition.method || '',
-    argument: condition.argument || '',
-  }))
+  const filters = conditions.map(condition => {
+    const filter = {
+      type: FilterType.CONDITION,
+      fieldName: condition.fieldName || '',
+      dataType: condition.dataType || 'nominal',
+      method: condition.method || '',
+    }
+    
+    // Handle both old argument and new arguments format
+    if (condition.arguments) {
+      filter.arguments = condition.arguments
+    } else if (condition.argument !== undefined) {
+      filter.arguments = [condition.argument]
+    } else {
+      filter.arguments = ['']
+    }
+    
+    return filter
+  })
 
   return {
     type: FilterType.GROUP,

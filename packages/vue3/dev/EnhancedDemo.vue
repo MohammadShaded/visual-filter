@@ -1,0 +1,791 @@
+<script>
+import { 
+  createEmptyFilter, 
+  createPresetFilter, 
+  FilterStateStorage, 
+  encodeFilterStateForURL, 
+  decodeFilterStateFromURL,
+  FilterType,
+  GroupType,
+  DataType
+} from "../src/main.js"
+
+export default {
+  name: "EnhancedDemo",
+  data() {
+    return {
+      // External filter state for v-model demo
+      externalFilterState: null,
+      
+      // Saved filters
+      savedFilters: [],
+      
+      // Demo data and methods
+      filteringOptions: {
+        data: [
+          {
+            name: "First Name",
+            type: "nominal",
+            values: ["Obada", "Ahmad", "Omar", "Sarah", "Leila"],
+          },
+          {
+            name: "Last Name", 
+            type: "nominal",
+            values: ["Khalili", "Drhili", "Hala hili", "Smith", "Johnson"],
+          },
+          {
+            name: "Grade",
+            type: "numeric",
+            values: [3.72, 3.52, 3.4, 2.8, 4.0],
+          },
+          {
+            name: "Age",
+            type: "numeric", 
+            values: [22, 25, 19, 30, 28],
+          },
+          {
+            name: "Department",
+            type: "nominal",
+            values: ["Engineering", "Marketing", "Sales", "HR", "Finance"],
+          },
+        ],
+        methods: {
+          numeric: {
+            "="(cellValue, argument) {
+              return cellValue == argument
+            },
+            ">"(cellValue, argument) {
+              return cellValue > argument
+            },
+            "<"(cellValue, argument) {
+              return cellValue < argument
+            },
+            ">="(cellValue, argument) {
+              return cellValue >= argument
+            },
+            "<="(cellValue, argument) {
+              return cellValue <= argument
+            },
+          },
+          nominal: {
+            contains(cellValue, argument) {
+              return cellValue.includes(argument)
+            },
+            startsWith(cellValue, argument) {
+              return cellValue.startsWith(argument)
+            },
+            endsWith(cellValue, argument) {
+              return cellValue.endsWith(argument)
+            },
+            equals(cellValue, argument) {
+              return cellValue === argument
+            },
+          },
+        },
+      },
+      
+      // UI state
+      currentTab: 'basic',
+      filterName: '',
+      showHistory: false,
+      shareableLink: '',
+      urlInput: '',
+      
+      // Reactive trigger for history updates
+      historyUpdateTrigger: 0,
+    }
+  },
+  
+  computed: {
+    historyInfo() {
+      // Use historyUpdateTrigger to make this reactive
+      this.historyUpdateTrigger
+      return this.$refs.filterComponent?.getHistory() || { history: [], currentIndex: -1, canUndo: false, canRedo: false }
+    },
+    
+    presetFilters() {
+      return [
+        {
+          name: "High Performers",
+          description: "Students with grade > 3.5",
+          filter: createPresetFilter([
+            { fieldName: "Grade", dataType: "numeric", method: ">", argument: "3.5" }
+          ])
+        },
+        {
+          name: "Engineering Department",
+          description: "All engineering employees",
+          filter: createPresetFilter([
+            { fieldName: "Department", dataType: "nominal", method: "equals", argument: "Engineering" }
+          ])
+        },
+        {
+          name: "Young & High Grade",
+          description: "Young people with good grades",
+          filter: createPresetFilter([
+            { fieldName: "Age", dataType: "numeric", method: "<", argument: "25" },
+            { fieldName: "Grade", dataType: "numeric", method: ">", argument: "3.0" }
+          ], GroupType.AND)
+        }
+      ]
+    }
+  },
+  
+  mounted() {
+    this.loadSavedFilters()
+    this.loadFilterFromURL()
+  },
+  
+  methods: {
+    // Filter event handlers
+    captureFilterUpdate(ctx) {
+      console.log('Filter updated:', ctx)
+      this.updateShareableLink()
+      // Trigger history info reactivity
+      this.historyUpdateTrigger++
+    },
+    
+    // Reset functionality
+    resetFilter() {
+      if (this.$refs.filterComponent) {
+        this.$refs.filterComponent.reset()
+        this.updateShareableLink()
+        this.historyUpdateTrigger++
+      }
+    },
+    
+    // Undo/Redo functionality
+    undoFilter() {
+      if (this.$refs.filterComponent) {
+        this.$refs.filterComponent.undo()
+        this.updateShareableLink()
+        this.historyUpdateTrigger++
+      }
+    },
+    
+    redoFilter() {
+      if (this.$refs.filterComponent) {
+        this.$refs.filterComponent.redo()
+        this.updateShareableLink()
+        this.historyUpdateTrigger++
+      }
+    },
+    
+    clearHistory() {
+      if (this.$refs.filterComponent) {
+        this.$refs.filterComponent.clearHistory()
+        this.historyUpdateTrigger++
+      }
+    },
+    
+    // Saved filters functionality
+    loadSavedFilters() {
+      const keys = FilterStateStorage.listKeys('demo-filter-')
+      this.savedFilters = keys.map(key => {
+        const filter = FilterStateStorage.load(key)
+        return {
+          key,
+          name: key.replace('demo-filter-', ''),
+          filter,
+          timestamp: new Date().toISOString() // In real app, store timestamp
+        }
+      }).filter(item => item.filter !== null)
+    },
+    
+    saveCurrentFilter() {
+      if (!this.filterName.trim()) {
+        alert('Please enter a name for the filter')
+        return
+      }
+      
+      const currentFilter = this.$refs.filterComponent?.getFilterState()
+      if (currentFilter) {
+        const key = `demo-filter-${this.filterName.trim()}`
+        const success = FilterStateStorage.save(key, currentFilter)
+        
+        if (success) {
+          this.loadSavedFilters()
+          this.filterName = ''
+          alert('Filter saved successfully!')
+        } else {
+          alert('Failed to save filter')
+        }
+      }
+    },
+    
+    loadSavedFilter(savedFilter) {
+      if (this.$refs.filterComponent) {
+        this.$refs.filterComponent.setFilterState(savedFilter.filter)
+        this.updateShareableLink()
+      }
+    },
+    
+    deleteSavedFilter(savedFilter) {
+      if (confirm(`Delete filter "${savedFilter.name}"?`)) {
+        FilterStateStorage.remove(savedFilter.key)
+        this.loadSavedFilters()
+      }
+    },
+    
+    // Preset filters functionality
+    loadPresetFilter(preset) {
+      if (this.$refs.filterComponent) {
+        this.$refs.filterComponent.setFilterState(preset.filter)
+        this.updateShareableLink()
+      }
+    },
+    
+    // URL sharing functionality
+    updateShareableLink() {
+      if (this.$refs.filterComponent) {
+        const currentFilter = this.$refs.filterComponent.getFilterState()
+        const encoded = encodeFilterStateForURL(currentFilter)
+        if (encoded) {
+          const url = new URL(window.location)
+          url.searchParams.set('filter', encoded)
+          this.shareableLink = url.toString()
+        }
+      }
+    },
+    
+    loadFilterFromURL() {
+      const urlParams = new URLSearchParams(window.location.search)
+      const encodedFilter = urlParams.get('filter')
+      
+      if (encodedFilter) {
+        const filter = decodeFilterStateFromURL(encodedFilter)
+        if (filter) {
+          this.externalFilterState = filter
+        }
+      }
+    },
+    
+    copyShareableLink() {
+      navigator.clipboard.writeText(this.shareableLink).then(() => {
+        alert('Link copied to clipboard!')
+      }).catch(() => {
+        alert('Failed to copy link')
+      })
+    },
+    
+    // External state demo
+    useExternalState() {
+      this.externalFilterState = this.$refs.filterComponent?.getFilterState() || createEmptyFilter()
+    },
+    
+    useInternalState() {
+      if (this.externalFilterState && this.$refs.filterComponent) {
+        // Set the current external state to internal before switching
+        this.$refs.filterComponent.setFilterState(this.externalFilterState)
+      }
+      this.externalFilterState = null
+    },
+    
+    // Export/Import functionality
+    exportFilter() {
+      const currentFilter = this.$refs.filterComponent?.getFilterState()
+      if (currentFilter) {
+        const jsonString = this.$refs.filterComponent.exportFilterState()
+        const blob = new Blob([jsonString], { type: 'application/json' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = 'visual-filter-export.json'
+        a.click()
+        URL.revokeObjectURL(url)
+      }
+    },
+    
+    importFilter() {
+      const input = document.createElement('input')
+      input.type = 'file'
+      input.accept = '.json'
+      input.onchange = (e) => {
+        const file = e.target.files[0]
+        if (file) {
+          const reader = new FileReader()
+          reader.onload = (e) => {
+            const success = this.$refs.filterComponent?.importFilterState(e.target.result)
+            if (success) {
+              this.updateShareableLink()
+              alert('Filter imported successfully!')
+            } else {
+              alert('Failed to import filter - invalid format')
+            }
+          }
+          reader.readAsText(file)
+        }
+      }
+      input.click()
+    },
+
+    // Helper methods for saved filters
+    getCurrentFilterInfo() {
+      const currentFilter = this.$refs.filterComponent?.getFilterState()
+      if (!currentFilter || currentFilter.filters.length === 0) {
+        return 'No conditions (empty filter)'
+      }
+      return `${currentFilter.filters.length} condition(s)`
+    },
+
+    formatDate(timestamp) {
+      try {
+        return new Date(timestamp).toLocaleDateString()
+      } catch {
+        return 'Unknown date'
+      }
+    },
+
+    // URL Sharing methods
+    loadFromURL() {
+      try {
+        const url = new URL(this.urlInput.trim())
+        const filterParam = url.searchParams.get('filter')
+        if (filterParam) {
+          const decoded = decodeFilterStateFromURL(filterParam)
+          if (decoded && this.$refs.filterComponent) {
+            this.$refs.filterComponent.setFilterState(decoded)
+            this.urlInput = ''
+            alert('Filter loaded successfully from URL!')
+          } else {
+            alert('Invalid filter data in URL')
+          }
+        } else {
+          alert('No filter data found in URL')
+        }
+      } catch (error) {
+        alert('Invalid URL format')
+      }
+    },
+
+    createSampleFilter() {
+      const sampleFilter = createPresetFilter([
+        { fieldName: "Grade", dataType: "numeric", method: ">", argument: "3.5" },
+        { fieldName: "Department", dataType: "nominal", method: "equals", argument: "Engineering" }
+      ], GroupType.AND)
+      
+      if (this.$refs.filterComponent) {
+        this.$refs.filterComponent.setFilterState(sampleFilter)
+      }
+    },
+
+    clearCurrentFilter() {
+      if (this.$refs.filterComponent) {
+        this.$refs.filterComponent.setFilterState(createEmptyFilter())
+      }
+    },
+
+    openInNewTab() {
+      if (this.shareableLink) {
+        window.open(this.shareableLink, '_blank')
+      }
+    }
+  }
+}
+</script>
+
+<template>
+  <div style="max-width: 1200px; margin: 0 auto; padding: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+    <h1 style="text-align: center; font-size: 2rem; font-weight: bold; margin-bottom: 2rem; color: #333;">
+      Vue Visual Filter - Enhanced API Demo
+    </h1>
+    
+    <!-- Tab Navigation -->
+    <div style="display: flex; border-bottom: 2px solid #e5e7eb; margin-bottom: 2rem; flex-wrap: wrap; gap: 0.5rem;">
+      <button 
+        @click="currentTab = 'basic'"
+        :style="{ 
+          padding: '0.75rem 1rem', 
+          border: 'none', 
+          background: 'none', 
+          color: currentTab === 'basic' ? '#3b82f6' : '#6b7280',
+          fontWeight: '500',
+          cursor: 'pointer',
+          borderBottom: currentTab === 'basic' ? '2px solid #3b82f6' : '2px solid transparent',
+          transition: 'all 0.2s'
+        }"
+      >
+        Basic Usage & Controls
+      </button>
+      <button 
+        @click="currentTab = 'external'"
+        :style="{ 
+          padding: '0.75rem 1rem', 
+          border: 'none', 
+          background: 'none', 
+          color: currentTab === 'external' ? '#3b82f6' : '#6b7280',
+          fontWeight: '500',
+          cursor: 'pointer',
+          borderBottom: currentTab === 'external' ? '2px solid #3b82f6' : '2px solid transparent',
+          transition: 'all 0.2s'
+        }"
+      >
+        External State (v-model)
+      </button>
+      <button 
+        @click="currentTab = 'saved'"
+        :style="{ 
+          padding: '0.75rem 1rem', 
+          border: 'none', 
+          background: 'none', 
+          color: currentTab === 'saved' ? '#3b82f6' : '#6b7280',
+          fontWeight: '500',
+          cursor: 'pointer',
+          borderBottom: currentTab === 'saved' ? '2px solid #3b82f6' : '2px solid transparent',
+          transition: 'all 0.2s'
+        }"
+      >
+        Saved Filters
+      </button>
+      <button 
+        @click="currentTab = 'presets'"
+        :style="{ 
+          padding: '0.75rem 1rem', 
+          border: 'none', 
+          background: 'none', 
+          color: currentTab === 'presets' ? '#3b82f6' : '#6b7280',
+          fontWeight: '500',
+          cursor: 'pointer',
+          borderBottom: currentTab === 'presets' ? '2px solid #3b82f6' : '2px solid transparent',
+          transition: 'all 0.2s'
+        }"
+      >
+        Preset Filters
+      </button>
+      <button 
+        @click="currentTab = 'sharing'"
+        :style="{ 
+          padding: '0.75rem 1rem', 
+          border: 'none', 
+          background: 'none', 
+          color: currentTab === 'sharing' ? '#3b82f6' : '#6b7280',
+          fontWeight: '500',
+          cursor: 'pointer',
+          borderBottom: currentTab === 'sharing' ? '2px solid #3b82f6' : '2px solid transparent',
+          transition: 'all 0.2s'
+        }"
+      >
+        URL Sharing
+      </button>
+    </div>
+
+    <!-- Basic Usage Tab -->
+    <div v-if="currentTab === 'basic'" style="display: flex; flex-direction: column; gap: 1.5rem;">
+      <div style="padding: 1rem; border-radius: 0.5rem; border: 1px solid #d1d5db; background: #f9fafb;">
+        <h3 style="margin: 0 0 0.5rem 0; font-weight: 600; color: #111827;">Internal State Management with Enhanced Controls</h3>
+        <p style="margin: 0; color: #6b7280; font-size: 0.875rem;">This demonstrates the traditional usage with internal state management and new control methods including reset, undo/redo, and history tracking.</p>
+      </div>
+      
+      <!-- Control buttons -->
+      <div style="display: flex; flex-wrap: wrap; gap: 0.75rem;">
+        <button @click="resetFilter" style="padding: 0.5rem 1rem; border: none; border-radius: 0.375rem; font-weight: 500; cursor: pointer; background: #6b7280; color: white;">
+          🔄 Reset Filter
+        </button>
+        <button @click="undoFilter" :disabled="!historyInfo.canUndo" 
+                style="padding: 0.5rem 1rem; border: none; border-radius: 0.375rem; font-weight: 500; cursor: pointer; background: #3b82f6; color: white;"
+                :style="{ opacity: historyInfo.canUndo ? 1 : 0.5, cursor: historyInfo.canUndo ? 'pointer' : 'not-allowed' }">
+          ↶ Undo
+        </button>
+        <button @click="redoFilter" :disabled="!historyInfo.canRedo"
+                style="padding: 0.5rem 1rem; border: none; border-radius: 0.375rem; font-weight: 500; cursor: pointer; background: #3b82f6; color: white;"
+                :style="{ opacity: historyInfo.canRedo ? 1 : 0.5, cursor: historyInfo.canRedo ? 'pointer' : 'not-allowed' }">
+          ↷ Redo
+        </button>
+        <button @click="showHistory = !showHistory" style="padding: 0.5rem 1rem; border: none; border-radius: 0.375rem; font-weight: 500; cursor: pointer; background: #8b5cf6; color: white;">
+          📋 {{ showHistory ? 'Hide' : 'Show' }} History
+        </button>
+        <button @click="clearHistory" style="padding: 0.5rem 1rem; border: none; border-radius: 0.375rem; font-weight: 500; cursor: pointer; background: #ef4444; color: white;">
+          🗑️ Clear History
+        </button>
+        <button @click="exportFilter" style="padding: 0.5rem 1rem; border: none; border-radius: 0.375rem; font-weight: 500; cursor: pointer; background: #10b981; color: white;">
+          📥 Export
+        </button>
+        <button @click="importFilter" style="padding: 0.5rem 1rem; border: none; border-radius: 0.375rem; font-weight: 500; cursor: pointer; background: #10b981; color: white;">
+          📤 Import
+        </button>
+      </div>
+
+      <!-- History display -->
+      <div v-if="showHistory" style="padding: 1rem; border: 1px solid #d1d5db; border-radius: 0.5rem; background: #f9fafb;">
+        <h4 style="margin: 0 0 0.5rem 0; font-weight: 600;">Filter History ({{ historyInfo.history.length }} states)</h4>
+        <p style="margin: 0 0 0.75rem 0; font-size: 0.875rem; color: #6b7280;">Current: {{ historyInfo.currentIndex + 1 }} / {{ historyInfo.history.length }}</p>
+        <div style="max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.25rem;">
+          <div v-for="(state, index) in historyInfo.history" :key="index"
+               :style="{ 
+                 padding: '0.5rem', 
+                 border: '1px solid #d1d5db', 
+                 borderRadius: '0.25rem', 
+                 background: index === historyInfo.currentIndex ? '#dbeafe' : 'white',
+                 borderColor: index === historyInfo.currentIndex ? '#3b82f6' : '#d1d5db',
+                 fontSize: '0.75rem'
+               }">
+            <strong>State {{ index + 1 }}:</strong> {{ state.filters.length }} filter(s)
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- External State Tab -->
+    <div v-if="currentTab === 'external'" style="display: flex; flex-direction: column; gap: 1.5rem;">
+      <div style="padding: 1rem; border-radius: 0.5rem; border: 1px solid #bbf7d0; background: #f0fdf4;">
+        <h3 style="margin: 0 0 0.5rem 0; font-weight: 600; color: #111827;">External State Management (v-model)</h3>
+        <p style="margin: 0; color: #6b7280; font-size: 0.875rem;">This demonstrates using v-model for external state control, allowing parent components to manage filter state.</p>
+      </div>
+      
+      <!-- State control -->
+      <div style="display: flex; gap: 0.75rem;">
+        <button @click="useExternalState" v-if="!externalFilterState" 
+                style="padding: 0.5rem 1rem; border: none; border-radius: 0.375rem; font-weight: 500; cursor: pointer; background: #10b981; color: white;">
+          🔄 Switch to External State
+        </button>
+        <button @click="useInternalState" v-if="externalFilterState"
+                style="padding: 0.5rem 1rem; border: none; border-radius: 0.375rem; font-weight: 500; cursor: pointer; background: #3b82f6; color: white;">
+          🔄 Switch to Internal State
+        </button>
+      </div>
+
+      <!-- State display -->
+      <div v-if="externalFilterState" style="padding: 1rem; border: 1px solid #d1d5db; border-radius: 0.5rem; background: #f9fafb;">
+        <h4 style="margin: 0 0 0.5rem 0; font-weight: 600;">External State JSON:</h4>
+        <pre style="margin: 0; padding: 0.75rem; background: white; border: 1px solid #d1d5db; border-radius: 0.25rem; overflow: auto; max-height: 200px; font-size: 0.75rem;">{{ JSON.stringify(externalFilterState, null, 2) }}</pre>
+      </div>
+    </div>
+
+    <!-- Add other tabs here... -->
+    <!-- Saved Filters Tab -->
+    <div v-if="currentTab === 'saved'" style="display: flex; flex-direction: column; gap: 1.5rem;">
+      <div style="padding: 1rem; border-radius: 0.5rem; border: 1px solid #d1d5db; background: #f9fafb;">
+        <h3 style="margin: 0 0 0.5rem 0; font-weight: 600; color: #111827;">💾 Save & Load Filter Configurations</h3>
+        <p style="margin: 0; color: #6b7280; font-size: 0.875rem;">Create a filter below, give it a name, and save it to localStorage. You can then load it anytime!</p>
+      </div>
+
+      <!-- Instructions -->
+      <div style="padding: 1rem; border: 1px solid #fbbf24; border-radius: 0.5rem; background: #fefbf2;">
+        <h4 style="margin: 0 0 0.5rem 0; font-weight: 600; color: #92400e;">📋 How to Use:</h4>
+        <ol style="margin: 0; padding-left: 1.25rem; color: #92400e; font-size: 0.875rem; line-height: 1.4;">
+          <li>First, go to "Basic Usage & Controls" tab and create some filter conditions</li>
+          <li>Return to this tab and enter a name for your filter</li>
+          <li>Click "Save Current Filter" to store it</li>
+          <li>Your saved filters will appear in the list below</li>
+          <li>Click "Load" to restore any saved filter</li>
+        </ol>
+      </div>
+
+      <!-- Save current filter -->
+      <div style="padding: 1.5rem; border: 1px solid #d1d5db; border-radius: 0.5rem; background: white;">
+        <h4 style="margin: 0 0 1rem 0; font-weight: 600;">💾 Save Current Filter</h4>
+        <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem;">
+          <input 
+            v-model="filterName"
+            placeholder="Enter filter name (e.g., 'VIP Customers', 'Active Users')..."
+            style="flex: 1; min-width: 250px; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.375rem; font-size: 0.875rem;"
+          />
+          <button 
+            @click="saveCurrentFilter"
+            style="padding: 0.75rem 1.5rem; border: none; border-radius: 0.375rem; font-weight: 500; cursor: pointer; background: #10b981; color: white; white-space: nowrap;"
+          >
+            💾 Save Filter
+          </button>
+        </div>
+        
+        <!-- Current filter preview -->
+        <div style="padding: 0.75rem; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 0.375rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 0.875rem; color: #6b7280;">Current filter has:</span>
+            <span style="font-size: 0.875rem; font-weight: 600; color: #111827;">{{ getCurrentFilterInfo() }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Saved filters list -->
+      <div style="padding: 1.5rem; border: 1px solid #d1d5db; border-radius: 0.5rem; background: white;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+          <h4 style="margin: 0; font-weight: 600;">📂 Your Saved Filters ({{ savedFilters.length }})</h4>
+          <button 
+            @click="loadSavedFilters"
+            style="padding: 0.375rem 0.75rem; border: 1px solid #d1d5db; border-radius: 0.25rem; background: white; font-size: 0.75rem; cursor: pointer;"
+          >
+            🔄 Refresh List
+          </button>
+        </div>
+        
+        <div v-if="savedFilters.length === 0" style="text-align: center; padding: 3rem; color: #6b7280; border: 2px dashed #d1d5db; border-radius: 0.5rem;">
+          <div style="font-size: 3rem; margin-bottom: 1rem;">📋</div>
+          <h5 style="margin: 0 0 0.5rem 0; font-weight: 600;">No saved filters yet!</h5>
+          <p style="margin: 0; font-size: 0.875rem;">Go to "Basic Usage & Controls" tab, create some filter conditions, then come back here to save them.</p>
+        </div>
+        
+        <div v-else style="display: flex; flex-direction: column; gap: 0.75rem;">
+          <div 
+            v-for="savedFilter in savedFilters" 
+            :key="savedFilter.key"
+            style="display: flex; justify-content: space-between; align-items: center; padding: 1rem; border: 1px solid #e5e7eb; border-radius: 0.375rem; background: #f9fafb; transition: all 0.2s;"
+            @mouseover="$event.target.style.borderColor = '#3b82f6'"
+            @mouseleave="$event.target.style.borderColor = '#e5e7eb'"
+          >
+            <div style="flex: 1;">
+              <h5 style="margin: 0 0 0.25rem 0; font-weight: 600; color: #111827;">{{ savedFilter.name }}</h5>
+              <p style="margin: 0; font-size: 0.75rem; color: #6b7280;">
+                {{ savedFilter.filter.filters.length }} condition(s) • 
+                Saved: {{ formatDate(savedFilter.timestamp) }}
+              </p>
+            </div>
+            <div style="display: flex; gap: 0.5rem;">
+              <button 
+                @click="loadSavedFilter(savedFilter)"
+                style="padding: 0.5rem 0.75rem; border: none; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 500; cursor: pointer; background: #3b82f6; color: white;"
+              >
+                📂 Load
+              </button>
+              <button 
+                @click="deleteSavedFilter(savedFilter)"
+                style="padding: 0.5rem 0.75rem; border: none; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 500; cursor: pointer; background: #ef4444; color: white;"
+              >
+                🗑️ Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="currentTab === 'presets'" style="text-align: center; padding: 2rem; color: #6b7280;">
+      <p>Preset Filters tab - Implementation would go here</p>
+      <p>This would show pre-configured filter examples</p>
+    </div>
+
+    <!-- URL Sharing Tab -->
+    <div v-if="currentTab === 'sharing'" style="display: flex; flex-direction: column; gap: 1.5rem;">
+      <div style="padding: 1rem; border-radius: 0.5rem; border: 1px solid #ddd6fe; background: #f5f3ff;">
+        <h3 style="margin: 0 0 0.5rem 0; font-weight: 600; color: #111827;">🔗 URL Sharing</h3>
+        <p style="margin: 0; color: #6b7280; font-size: 0.875rem;">Share your filter configurations via URL. Any changes to filters automatically update the shareable link.</p>
+      </div>
+
+      <!-- Current Shareable Link -->
+      <div style="padding: 1.5rem; border: 1px solid #d1d5db; border-radius: 0.5rem; background: white;">
+        <h4 style="margin: 0 0 1rem 0; font-weight: 600;">📤 Current Filter Link</h4>
+        <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <input 
+              :value="shareableLink || 'No filter applied yet'"
+              readonly
+              style="flex: 1; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.375rem; font-family: monospace; font-size: 0.875rem; background: #f9fafb;"
+            />
+            <button 
+              @click="copyShareableLink" 
+              :disabled="!shareableLink"
+              style="padding: 0.75rem 1rem; border: none; border-radius: 0.375rem; font-weight: 500; cursor: pointer; background: #3b82f6; color: white; white-space: nowrap;"
+              :style="{ opacity: shareableLink ? 1 : 0.5, cursor: shareableLink ? 'pointer' : 'not-allowed' }"
+            >
+              📋 Copy Link
+            </button>
+          </div>
+          <p style="margin: 0; font-size: 0.75rem; color: #6b7280;">
+            ✨ This link updates automatically when you change filters. 
+            Share it with others to let them see your exact filter configuration!
+          </p>
+        </div>
+      </div>
+
+      <!-- Load from URL -->
+      <div style="padding: 1.5rem; border: 1px solid #d1d5db; border-radius: 0.5rem; background: white;">
+        <h4 style="margin: 0 0 1rem 0; font-weight: 600;">📥 Load Filter from URL</h4>
+        <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <input 
+              v-model="urlInput"
+              placeholder="Paste a shared filter URL here..."
+              style="flex: 1; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.375rem; font-family: monospace; font-size: 0.875rem;"
+            />
+            <button 
+              @click="loadFromURL" 
+              :disabled="!urlInput.trim()"
+              style="padding: 0.75rem 1rem; border: none; border-radius: 0.375rem; font-weight: 500; cursor: pointer; background: #10b981; color: white; white-space: nowrap;"
+              :style="{ opacity: urlInput.trim() ? 1 : 0.5, cursor: urlInput.trim() ? 'pointer' : 'not-allowed' }"
+            >
+              🔄 Load
+            </button>
+          </div>
+          <p style="margin: 0; font-size: 0.75rem; color: #6b7280;">
+            💡 Paste a URL from someone else to load their filter configuration.
+            You can also modify the URL in your browser's address bar directly.
+          </p>
+        </div>
+      </div>
+
+      <!-- How it Works -->
+      <div style="padding: 1.5rem; border: 1px solid #fef3c7; border-radius: 0.5rem; background: #fffbeb;">
+        <h4 style="margin: 0 0 1rem 0; font-weight: 600; color: #d97706;">💡 How URL Sharing Works</h4>
+        <div style="display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.875rem; color: #92400e;">
+          <div style="display: flex; gap: 0.5rem;">
+            <span>1️⃣</span>
+            <span>Create any filter configuration in the "Basic Usage" tab</span>
+          </div>
+          <div style="display: flex; gap: 0.5rem;">
+            <span>2️⃣</span>
+            <span>The shareable link above updates automatically with your filters</span>
+          </div>
+          <div style="display: flex; gap: 0.5rem;">
+            <span>3️⃣</span>
+            <span>Copy and share the link with others</span>
+          </div>
+          <div style="display: flex; gap: 0.5rem;">
+            <span>4️⃣</span>
+            <span>Anyone who opens the link will see your exact filter setup</span>
+          </div>
+          <div style="display: flex; gap: 0.5rem;">
+            <span>5️⃣</span>
+            <span>The page automatically loads filters from the URL when opened</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Demo Actions -->
+      <div style="padding: 1.5rem; border: 1px solid #d1fae5; border-radius: 0.5rem; background: #f0fdf4;">
+        <h4 style="margin: 0 0 1rem 0; font-weight: 600; color: #059669;">🚀 Try It Out</h4>
+        <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+          <button 
+            @click="createSampleFilter"
+            style="padding: 0.75rem 1rem; border: none; border-radius: 0.375rem; font-weight: 500; cursor: pointer; background: #059669; color: white;"
+          >
+            🎯 Create Sample Filter
+          </button>
+          <button 
+            @click="clearCurrentFilter"
+            style="padding: 0.75rem 1rem; border: none; border-radius: 0.375rem; font-weight: 500; cursor: pointer; background: #dc2626; color: white;"
+          >
+            🗑️ Clear Filter
+          </button>
+          <button 
+            @click="openInNewTab"
+            :disabled="!shareableLink"
+            style="padding: 0.75rem 1rem; border: none; border-radius: 0.375rem; font-weight: 500; cursor: pointer; background: #7c3aed; color: white;"
+            :style="{ opacity: shareableLink ? 1 : 0.5, cursor: shareableLink ? 'pointer' : 'not-allowed' }"
+          >
+            🔗 Open in New Tab
+          </button>
+        </div>
+        <p style="margin: 0.75rem 0 0 0; font-size: 0.75rem; color: #047857;">
+          🎪 Use these buttons to quickly test the URL sharing functionality!
+        </p>
+      </div>
+    </div>
+
+    <!-- Always-rendered Filter Component (hidden for non-interactive tabs) -->
+    <div :style="{ 
+      padding: '1rem', 
+      border: '1px solid #d1d5db', 
+      borderRadius: '0.5rem', 
+      background: 'white',
+      display: (currentTab === 'basic' || currentTab === 'external') ? 'block' : 'none'
+    }">
+      <VueVisualFilter
+        ref="filterComponent"
+        :filtering-options="filteringOptions"
+        :model-value="currentTab === 'external' ? externalFilterState : null"
+        @update:model-value="currentTab === 'external' ? (externalFilterState = $event) : null"
+        @filter-update="captureFilterUpdate"
+      />
+    </div>
+  </div>
+</template>

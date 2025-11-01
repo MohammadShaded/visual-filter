@@ -89,11 +89,16 @@ export default {
       filterName: '',
       showHistory: false,
       shareableLink: '',
+      
+      // Reactive trigger for history updates
+      historyUpdateTrigger: 0,
     }
   },
   
   computed: {
     historyInfo() {
+      // Use historyUpdateTrigger to make this reactive
+      this.historyUpdateTrigger
       return this.$refs.filterComponent?.getHistory() || { history: [], currentIndex: -1, canUndo: false, canRedo: false }
     },
     
@@ -135,6 +140,8 @@ export default {
     captureFilterUpdate(ctx) {
       console.log('Filter updated:', ctx)
       this.updateShareableLink()
+      // Trigger history info reactivity
+      this.historyUpdateTrigger++
     },
     
     // Reset functionality
@@ -142,6 +149,7 @@ export default {
       if (this.$refs.filterComponent) {
         this.$refs.filterComponent.reset()
         this.updateShareableLink()
+        this.historyUpdateTrigger++
       }
     },
     
@@ -150,6 +158,7 @@ export default {
       if (this.$refs.filterComponent) {
         this.$refs.filterComponent.undo()
         this.updateShareableLink()
+        this.historyUpdateTrigger++
       }
     },
     
@@ -157,12 +166,14 @@ export default {
       if (this.$refs.filterComponent) {
         this.$refs.filterComponent.redo()
         this.updateShareableLink()
+        this.historyUpdateTrigger++
       }
     },
     
     clearHistory() {
       if (this.$refs.filterComponent) {
         this.$refs.filterComponent.clearHistory()
+        this.historyUpdateTrigger++
       }
     },
     
@@ -305,6 +316,23 @@ export default {
         }
       }
       input.click()
+    },
+
+    // Helper methods for saved filters
+    getCurrentFilterInfo() {
+      const currentFilter = this.$refs.filterComponent?.getFilterState()
+      if (!currentFilter || currentFilter.filters.length === 0) {
+        return 'No conditions (empty filter)'
+      }
+      return `${currentFilter.filters.length} condition(s)`
+    },
+
+    formatDate(timestamp) {
+      try {
+        return new Date(timestamp).toLocaleDateString()
+      } catch {
+        return 'Unknown date'
+      }
     }
   }
 }
@@ -449,15 +477,6 @@ export default {
           </div>
         </div>
       </div>
-
-      <!-- Filter component -->
-      <div style="padding: 1rem; border: 1px solid #d1d5db; border-radius: 0.5rem; background: white;">
-        <VueVisualFilter
-          ref="filterComponent"
-          :filtering-options="filteringOptions"
-          @filter-update="captureFilterUpdate"
-        />
-      </div>
     </div>
 
     <!-- External State Tab -->
@@ -484,22 +503,104 @@ export default {
         <h4 style="margin: 0 0 0.5rem 0; font-weight: 600;">External State JSON:</h4>
         <pre style="margin: 0; padding: 0.75rem; background: white; border: 1px solid #d1d5db; border-radius: 0.25rem; overflow: auto; max-height: 200px; font-size: 0.75rem;">{{ JSON.stringify(externalFilterState, null, 2) }}</pre>
       </div>
-
-      <!-- Filter component with v-model -->
-      <div style="padding: 1rem; border: 1px solid #d1d5db; border-radius: 0.5rem; background: white;">
-        <VueVisualFilter
-          ref="filterComponent"
-          :filtering-options="filteringOptions"
-          v-model="externalFilterState"
-          @filter-update="captureFilterUpdate"
-        />
-      </div>
     </div>
 
     <!-- Add other tabs here... -->
-    <div v-if="currentTab === 'saved'" style="text-align: center; padding: 2rem; color: #6b7280;">
-      <p>Saved Filters tab - Implementation would go here</p>
-      <p>This would show localStorage save/load functionality</p>
+    <!-- Saved Filters Tab -->
+    <div v-if="currentTab === 'saved'" style="display: flex; flex-direction: column; gap: 1.5rem;">
+      <div style="padding: 1rem; border-radius: 0.5rem; border: 1px solid #d1d5db; background: #f9fafb;">
+        <h3 style="margin: 0 0 0.5rem 0; font-weight: 600; color: #111827;">💾 Save & Load Filter Configurations</h3>
+        <p style="margin: 0; color: #6b7280; font-size: 0.875rem;">Create a filter below, give it a name, and save it to localStorage. You can then load it anytime!</p>
+      </div>
+
+      <!-- Instructions -->
+      <div style="padding: 1rem; border: 1px solid #fbbf24; border-radius: 0.5rem; background: #fefbf2;">
+        <h4 style="margin: 0 0 0.5rem 0; font-weight: 600; color: #92400e;">📋 How to Use:</h4>
+        <ol style="margin: 0; padding-left: 1.25rem; color: #92400e; font-size: 0.875rem; line-height: 1.4;">
+          <li>First, go to "Basic Usage & Controls" tab and create some filter conditions</li>
+          <li>Return to this tab and enter a name for your filter</li>
+          <li>Click "Save Current Filter" to store it</li>
+          <li>Your saved filters will appear in the list below</li>
+          <li>Click "Load" to restore any saved filter</li>
+        </ol>
+      </div>
+
+      <!-- Save current filter -->
+      <div style="padding: 1.5rem; border: 1px solid #d1d5db; border-radius: 0.5rem; background: white;">
+        <h4 style="margin: 0 0 1rem 0; font-weight: 600;">💾 Save Current Filter</h4>
+        <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem;">
+          <input 
+            v-model="filterName"
+            placeholder="Enter filter name (e.g., 'VIP Customers', 'Active Users')..."
+            style="flex: 1; min-width: 250px; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.375rem; font-size: 0.875rem;"
+          />
+          <button 
+            @click="saveCurrentFilter"
+            style="padding: 0.75rem 1.5rem; border: none; border-radius: 0.375rem; font-weight: 500; cursor: pointer; background: #10b981; color: white; white-space: nowrap;"
+          >
+            💾 Save Filter
+          </button>
+        </div>
+        
+        <!-- Current filter preview -->
+        <div style="padding: 0.75rem; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 0.375rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 0.875rem; color: #6b7280;">Current filter has:</span>
+            <span style="font-size: 0.875rem; font-weight: 600; color: #111827;">{{ getCurrentFilterInfo() }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Saved filters list -->
+      <div style="padding: 1.5rem; border: 1px solid #d1d5db; border-radius: 0.5rem; background: white;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+          <h4 style="margin: 0; font-weight: 600;">📂 Your Saved Filters ({{ savedFilters.length }})</h4>
+          <button 
+            @click="loadSavedFilters"
+            style="padding: 0.375rem 0.75rem; border: 1px solid #d1d5db; border-radius: 0.25rem; background: white; font-size: 0.75rem; cursor: pointer;"
+          >
+            🔄 Refresh List
+          </button>
+        </div>
+        
+        <div v-if="savedFilters.length === 0" style="text-align: center; padding: 3rem; color: #6b7280; border: 2px dashed #d1d5db; border-radius: 0.5rem;">
+          <div style="font-size: 3rem; margin-bottom: 1rem;">📋</div>
+          <h5 style="margin: 0 0 0.5rem 0; font-weight: 600;">No saved filters yet!</h5>
+          <p style="margin: 0; font-size: 0.875rem;">Go to "Basic Usage & Controls" tab, create some filter conditions, then come back here to save them.</p>
+        </div>
+        
+        <div v-else style="display: flex; flex-direction: column; gap: 0.75rem;">
+          <div 
+            v-for="savedFilter in savedFilters" 
+            :key="savedFilter.key"
+            style="display: flex; justify-content: space-between; align-items: center; padding: 1rem; border: 1px solid #e5e7eb; border-radius: 0.375rem; background: #f9fafb; transition: all 0.2s;"
+            @mouseover="$event.target.style.borderColor = '#3b82f6'"
+            @mouseleave="$event.target.style.borderColor = '#e5e7eb'"
+          >
+            <div style="flex: 1;">
+              <h5 style="margin: 0 0 0.25rem 0; font-weight: 600; color: #111827;">{{ savedFilter.name }}</h5>
+              <p style="margin: 0; font-size: 0.75rem; color: #6b7280;">
+                {{ savedFilter.filter.filters.length }} condition(s) • 
+                Saved: {{ formatDate(savedFilter.timestamp) }}
+              </p>
+            </div>
+            <div style="display: flex; gap: 0.5rem;">
+              <button 
+                @click="loadSavedFilter(savedFilter)"
+                style="padding: 0.5rem 0.75rem; border: none; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 500; cursor: pointer; background: #3b82f6; color: white;"
+              >
+                📂 Load
+              </button>
+              <button 
+                @click="deleteSavedFilter(savedFilter)"
+                style="padding: 0.5rem 0.75rem; border: none; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 500; cursor: pointer; background: #ef4444; color: white;"
+              >
+                🗑️ Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div v-if="currentTab === 'presets'" style="text-align: center; padding: 2rem; color: #6b7280;">
@@ -510,6 +611,23 @@ export default {
     <div v-if="currentTab === 'sharing'" style="text-align: center; padding: 2rem; color: #6b7280;">
       <p>URL Sharing tab - Implementation would go here</p>
       <p>This would show URL encoding/decoding functionality</p>
+    </div>
+
+    <!-- Always-rendered Filter Component (hidden for non-interactive tabs) -->
+    <div :style="{ 
+      padding: '1rem', 
+      border: '1px solid #d1d5db', 
+      borderRadius: '0.5rem', 
+      background: 'white',
+      display: (currentTab === 'basic' || currentTab === 'external') ? 'block' : 'none'
+    }">
+      <VueVisualFilter
+        ref="filterComponent"
+        :filtering-options="filteringOptions"
+        :model-value="currentTab === 'external' ? externalFilterState : null"
+        @update:model-value="currentTab === 'external' ? (externalFilterState = $event) : null"
+        @filter-update="captureFilterUpdate"
+      />
     </div>
   </div>
 </template>

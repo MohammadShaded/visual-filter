@@ -6,7 +6,7 @@ import {
   DataType,
   deepCopy,
 } from "@visual-filter/common"
-import applyFilter from "@visual-filter/applyer"
+import { applyFilter, ExtendedDataType } from "../utils.js"
 
 import FilterGroup from "./FilterGroup.vue"
 import FilterCondition from "./FilterCondition.vue"
@@ -36,7 +36,10 @@ export default {
             ) &&
             Object.values(value.methods.nominal).every(
               (method) => typeof method === "function",
-            )
+            ) &&
+            (value.methods.date ? Object.values(value.methods.date).every(
+              (method) => typeof method === "function" || (typeof method === "object" && typeof method.operation === "function"),
+            ) : true)
           )
         } catch {
           return false
@@ -96,6 +99,9 @@ export default {
     },
     nominalMethodNames() {
       return Object.keys(this.filteringOptions.methods.nominal)
+    },
+    dateMethodNames() {
+      return this.filteringOptions.methods.date ? Object.keys(this.filteringOptions.methods.date) : []
     },
     canUndo() {
       return this.currentHistoryIndex > 0
@@ -283,14 +289,71 @@ export default {
         (field) => field.name === newFieldName,
       )
       if (condition.dataType !== newType) {
-        condition.method =
-          (newType === DataType.NUMERIC
-            ? this.numericMethodNames[0]
-            : this.nominalMethodNames[0]) || ""
-        condition.argument = newSampleValue
+        const defaultMethod = newType === ExtendedDataType.NUMERIC
+          ? this.numericMethodNames[0]
+          : newType === ExtendedDataType.DATE
+          ? this.dateMethodNames[0]
+          : this.nominalMethodNames[0]
+
+        condition.method = defaultMethod || ""
+        
+        // Update arguments array based on new method
+        const methodDef = this.getMethodDefinition(newType, defaultMethod)
+        const argumentCount = methodDef?.arguments || 1
+        
+        // Migrate from old single argument to new arguments array if needed
+        if (condition.argument !== undefined && !condition.arguments) {
+          condition.arguments = [condition.argument]
+          delete condition.argument
+        }
+        
+        // Ensure we have the right number of arguments
+        condition.arguments = Array(argumentCount).fill(newSampleValue)
         condition.dataType = newType
       }
     },
+
+    updateConditionMethod(condition, newMethod) {
+      condition.method = newMethod
+      
+      // Update arguments array based on new method
+      const methodDef = this.getMethodDefinition(condition.dataType, newMethod)
+      const argumentCount = methodDef?.arguments || 1
+      
+      // Preserve existing arguments or use empty strings
+      const currentArgs = condition.arguments || (condition.argument ? [condition.argument] : [])
+      condition.arguments = Array(argumentCount).fill('').map((_, index) => 
+        currentArgs[index] || ''
+      )
+      
+      // Clean up old argument property if it exists
+      if (condition.argument !== undefined) {
+        delete condition.argument
+      }
+    },
+
+    // Helper method to get method definition (supports both old and new format)
+    getMethodDefinition(dataType, methodName) {
+      let methods
+      if (dataType === ExtendedDataType.NUMERIC) {
+        methods = this.filteringOptions.methods.numeric
+      } else if (dataType === ExtendedDataType.DATE) {
+        methods = this.filteringOptions.methods.date
+      } else {
+        methods = this.filteringOptions.methods.nominal
+      }
+
+      const method = methods?.[methodName]
+      if (typeof method === 'function') {
+        // Old format - single argument
+        return { arguments: 1, operation: method }
+      } else if (typeof method === 'object' && method.operation) {
+        // New format - multi-argument
+        return method
+      }
+      return null
+    },
+
     addFilter(filters, newFilterType) {
       if (newFilterType === FilterType.GROUP) {
         filters.push({
@@ -305,15 +368,21 @@ export default {
           values: [sampleValue = ""],
         } = this.filteringOptions.data[0]
 
+        const defaultMethod = type === ExtendedDataType.NUMERIC
+          ? this.numericMethodNames[0]
+          : type === ExtendedDataType.DATE
+          ? this.dateMethodNames[0]
+          : this.nominalMethodNames[0]
+
+        const methodDef = this.getMethodDefinition(type, defaultMethod)
+        const argumentCount = methodDef?.arguments || 1
+
         filters.push({
           type: FilterType.CONDITION,
           fieldName: name,
           dataType: type,
-          method:
-            (type === DataType.NUMERIC
-              ? this.numericMethodNames[0]
-              : this.nominalMethodNames[0]) || "",
-          argument: sampleValue,
+          method: defaultMethod || "",
+          arguments: Array(argumentCount).fill(sampleValue),
         })
       }
     },
@@ -359,7 +428,9 @@ export default {
             fieldNames: this.fieldNames,
             numericMethodNames: this.numericMethodNames,
             nominalMethodNames: this.nominalMethodNames,
+            dateMethodNames: this.dateMethodNames,
             onUpdateField: this.updateConditionField,
+            onUpdateMethod: this.updateConditionMethod,
             onDeleteCondition: this.deleteFilter,
           },
           {

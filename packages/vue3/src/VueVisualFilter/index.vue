@@ -108,8 +108,8 @@ export default {
     filter: {
       deep: true,
       handler(newFilter) {
-        // Add to history if not restoring from history and not externally controlled
-        if (!this.isRestoringFromHistory && !this.isExternallyControlled) {
+        // Only add to history for external state (v-model) scenarios
+        if (!this.isRestoringFromHistory && this.isExternallyControlled) {
           this.addToHistory(deepCopy(newFilter))
         }
 
@@ -130,12 +130,13 @@ export default {
         }
       },
     },
-    modelValue: {
+    // Watch internal filter directly to ensure history tracking works
+    internalFilter: {
       deep: true,
-      handler(newValue) {
-        if (newValue && !this.isRestoringFromHistory) {
-          // When external modelValue changes, add to history
-          this.addToHistory(deepCopy(newValue))
+      handler(newFilter) {
+        // Only track if not using external state and not restoring from history
+        if (!this.isExternallyControlled && !this.isRestoringFromHistory) {
+          this.addToHistory(deepCopy(newFilter))
         }
       },
     },

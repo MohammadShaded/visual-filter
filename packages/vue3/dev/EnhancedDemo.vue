@@ -89,6 +89,7 @@ export default {
       filterName: '',
       showHistory: false,
       shareableLink: '',
+      urlInput: '',
       
       // Reactive trigger for history updates
       historyUpdateTrigger: 0,
@@ -332,6 +333,51 @@ export default {
         return new Date(timestamp).toLocaleDateString()
       } catch {
         return 'Unknown date'
+      }
+    },
+
+    // URL Sharing methods
+    loadFromURL() {
+      try {
+        const url = new URL(this.urlInput.trim())
+        const filterParam = url.searchParams.get('filter')
+        if (filterParam) {
+          const decoded = decodeFilterStateFromURL(filterParam)
+          if (decoded && this.$refs.filterComponent) {
+            this.$refs.filterComponent.setFilterState(decoded)
+            this.urlInput = ''
+            alert('Filter loaded successfully from URL!')
+          } else {
+            alert('Invalid filter data in URL')
+          }
+        } else {
+          alert('No filter data found in URL')
+        }
+      } catch (error) {
+        alert('Invalid URL format')
+      }
+    },
+
+    createSampleFilter() {
+      const sampleFilter = createPresetFilter([
+        { fieldName: "Grade", dataType: "numeric", method: ">", argument: "3.5" },
+        { fieldName: "Department", dataType: "nominal", method: "equals", argument: "Engineering" }
+      ], GroupType.AND)
+      
+      if (this.$refs.filterComponent) {
+        this.$refs.filterComponent.setFilterState(sampleFilter)
+      }
+    },
+
+    clearCurrentFilter() {
+      if (this.$refs.filterComponent) {
+        this.$refs.filterComponent.setFilterState(createEmptyFilter())
+      }
+    },
+
+    openInNewTab() {
+      if (this.shareableLink) {
+        window.open(this.shareableLink, '_blank')
       }
     }
   }
@@ -608,9 +654,121 @@ export default {
       <p>This would show pre-configured filter examples</p>
     </div>
 
-    <div v-if="currentTab === 'sharing'" style="text-align: center; padding: 2rem; color: #6b7280;">
-      <p>URL Sharing tab - Implementation would go here</p>
-      <p>This would show URL encoding/decoding functionality</p>
+    <!-- URL Sharing Tab -->
+    <div v-if="currentTab === 'sharing'" style="display: flex; flex-direction: column; gap: 1.5rem;">
+      <div style="padding: 1rem; border-radius: 0.5rem; border: 1px solid #ddd6fe; background: #f5f3ff;">
+        <h3 style="margin: 0 0 0.5rem 0; font-weight: 600; color: #111827;">🔗 URL Sharing</h3>
+        <p style="margin: 0; color: #6b7280; font-size: 0.875rem;">Share your filter configurations via URL. Any changes to filters automatically update the shareable link.</p>
+      </div>
+
+      <!-- Current Shareable Link -->
+      <div style="padding: 1.5rem; border: 1px solid #d1d5db; border-radius: 0.5rem; background: white;">
+        <h4 style="margin: 0 0 1rem 0; font-weight: 600;">📤 Current Filter Link</h4>
+        <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <input 
+              :value="shareableLink || 'No filter applied yet'"
+              readonly
+              style="flex: 1; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.375rem; font-family: monospace; font-size: 0.875rem; background: #f9fafb;"
+            />
+            <button 
+              @click="copyShareableLink" 
+              :disabled="!shareableLink"
+              style="padding: 0.75rem 1rem; border: none; border-radius: 0.375rem; font-weight: 500; cursor: pointer; background: #3b82f6; color: white; white-space: nowrap;"
+              :style="{ opacity: shareableLink ? 1 : 0.5, cursor: shareableLink ? 'pointer' : 'not-allowed' }"
+            >
+              📋 Copy Link
+            </button>
+          </div>
+          <p style="margin: 0; font-size: 0.75rem; color: #6b7280;">
+            ✨ This link updates automatically when you change filters. 
+            Share it with others to let them see your exact filter configuration!
+          </p>
+        </div>
+      </div>
+
+      <!-- Load from URL -->
+      <div style="padding: 1.5rem; border: 1px solid #d1d5db; border-radius: 0.5rem; background: white;">
+        <h4 style="margin: 0 0 1rem 0; font-weight: 600;">📥 Load Filter from URL</h4>
+        <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <input 
+              v-model="urlInput"
+              placeholder="Paste a shared filter URL here..."
+              style="flex: 1; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.375rem; font-family: monospace; font-size: 0.875rem;"
+            />
+            <button 
+              @click="loadFromURL" 
+              :disabled="!urlInput.trim()"
+              style="padding: 0.75rem 1rem; border: none; border-radius: 0.375rem; font-weight: 500; cursor: pointer; background: #10b981; color: white; white-space: nowrap;"
+              :style="{ opacity: urlInput.trim() ? 1 : 0.5, cursor: urlInput.trim() ? 'pointer' : 'not-allowed' }"
+            >
+              🔄 Load
+            </button>
+          </div>
+          <p style="margin: 0; font-size: 0.75rem; color: #6b7280;">
+            💡 Paste a URL from someone else to load their filter configuration.
+            You can also modify the URL in your browser's address bar directly.
+          </p>
+        </div>
+      </div>
+
+      <!-- How it Works -->
+      <div style="padding: 1.5rem; border: 1px solid #fef3c7; border-radius: 0.5rem; background: #fffbeb;">
+        <h4 style="margin: 0 0 1rem 0; font-weight: 600; color: #d97706;">💡 How URL Sharing Works</h4>
+        <div style="display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.875rem; color: #92400e;">
+          <div style="display: flex; gap: 0.5rem;">
+            <span>1️⃣</span>
+            <span>Create any filter configuration in the "Basic Usage" tab</span>
+          </div>
+          <div style="display: flex; gap: 0.5rem;">
+            <span>2️⃣</span>
+            <span>The shareable link above updates automatically with your filters</span>
+          </div>
+          <div style="display: flex; gap: 0.5rem;">
+            <span>3️⃣</span>
+            <span>Copy and share the link with others</span>
+          </div>
+          <div style="display: flex; gap: 0.5rem;">
+            <span>4️⃣</span>
+            <span>Anyone who opens the link will see your exact filter setup</span>
+          </div>
+          <div style="display: flex; gap: 0.5rem;">
+            <span>5️⃣</span>
+            <span>The page automatically loads filters from the URL when opened</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Demo Actions -->
+      <div style="padding: 1.5rem; border: 1px solid #d1fae5; border-radius: 0.5rem; background: #f0fdf4;">
+        <h4 style="margin: 0 0 1rem 0; font-weight: 600; color: #059669;">🚀 Try It Out</h4>
+        <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+          <button 
+            @click="createSampleFilter"
+            style="padding: 0.75rem 1rem; border: none; border-radius: 0.375rem; font-weight: 500; cursor: pointer; background: #059669; color: white;"
+          >
+            🎯 Create Sample Filter
+          </button>
+          <button 
+            @click="clearCurrentFilter"
+            style="padding: 0.75rem 1rem; border: none; border-radius: 0.375rem; font-weight: 500; cursor: pointer; background: #dc2626; color: white;"
+          >
+            🗑️ Clear Filter
+          </button>
+          <button 
+            @click="openInNewTab"
+            :disabled="!shareableLink"
+            style="padding: 0.75rem 1rem; border: none; border-radius: 0.375rem; font-weight: 500; cursor: pointer; background: #7c3aed; color: white;"
+            :style="{ opacity: shareableLink ? 1 : 0.5, cursor: shareableLink ? 'pointer' : 'not-allowed' }"
+          >
+            🔗 Open in New Tab
+          </button>
+        </div>
+        <p style="margin: 0.75rem 0 0 0; font-size: 0.75rem; color: #047857;">
+          🎪 Use these buttons to quickly test the URL sharing functionality!
+        </p>
+      </div>
     </div>
 
     <!-- Always-rendered Filter Component (hidden for non-interactive tabs) -->
